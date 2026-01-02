@@ -1,8 +1,9 @@
 package com.kiu.smoothmines.logic
 
+import androidx.annotation.RequiresApi
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.kiu.smoothmines.models.Cell
-
+import kotlinx.coroutines.delay
 
 class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
 
@@ -14,48 +15,49 @@ class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
         return board
     }
 
-    fun revealEmptyCells(
-        cells: SnapshotStateList<Cell>,
+    suspend fun revealEmptyCells(
         startCell: Cell,
-        onCellRevealed: (Cell) -> Unit = {}
+        cells: MutableList<Cell>, // Убедись, что тут MutableList
+        onCellRevealed: (Cell) -> Unit
     ) {
-        val queue = ArrayDeque<Pair<Cell, Int>>() // Store cell and its distance from start
+        val queue = ArrayDeque<Pair<Cell, Int>>() // Пара: Ячейка и её дистанция
         val visited = mutableSetOf<Pair<Int, Int>>()
 
-        queue.addLast(startCell to 0)
+        queue.add(startCell to 0)
+        var currentDistance = 0
 
         while (queue.isNotEmpty()) {
             val (current, distance) = queue.removeFirst()
-            val currentPos = current.x to current.y
+            val pos = current.x to current.y
 
-            if (currentPos in visited) continue
-            visited.add(currentPos)
+            if (pos in visited) continue
+            visited.add(pos)
 
-            val currentIndex = cells.indexOfFirst { it.x == current.x && it.y == current.y }
-            if (currentIndex == -1) continue
+            // Если мы перешли на новый уровень дистанции, делаем небольшую паузу
+            if (distance > currentDistance) {
+                delay(25L) // Время между "волнами"
+                currentDistance = distance
+            }
 
-            // Update the cell as revealed
-            cells[currentIndex] = cells[currentIndex].copy(isRevealed = true)
+            val index = cells.indexOfFirst { it.x == current.x && it.y == current.y }
+            if (index != -1 && !cells[index].isRevealed) {
+                // Обновляем состояние
+                cells[index] = cells[index].copy(isRevealed = true)
+                onCellRevealed(cells[index])
 
-            // Notify about the revealed cell with delay based on distance
-            onCellRevealed(cells[currentIndex])
+                // Если рядом нет мин, добавляем соседей
+                if (cells[index].adjacentMines == 0) {
+                    for (dx in -1..1) {
+                        for (dy in -1..1) {
+                            if (dx == 0 && dy == 0) continue
+                            val nx = current.x + dx
+                            val ny = current.y + dy
 
-            // If there are adjacent mines, don't reveal further
-            if (current.adjacentMines > 0) continue
-
-            // Add neighbors to queue with increased distance
-            for (dx in -1..1) {
-                for (dy in -1..1) {
-                    if (dx == 0 && dy == 0) continue
-
-                    val nx = current.x + dx
-                    val ny = current.y + dy
-
-                    if (nx !in 0 until rows || ny !in 0 until cols) continue
-
-                    val neighbor = cells.find { it.x == nx && it.y == ny }
-                    if (neighbor != null && !neighbor.isRevealed && !neighbor.isMine) {
-                        queue.addLast(neighbor to distance + 1)
+                            val neighbor = cells.find { it.x == nx && it.y == ny }
+                            if (neighbor != null && !neighbor.isRevealed && !neighbor.isMine) {
+                                queue.add(neighbor to distance + 1)
+                            }
+                        }
                     }
                 }
             }

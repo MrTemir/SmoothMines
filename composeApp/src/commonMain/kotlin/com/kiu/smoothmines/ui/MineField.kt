@@ -22,6 +22,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -127,42 +128,61 @@ fun MineField(
                             if (gameState != "playing" || cell.isRevealed) return@AnimatedCellView
 
                             if (isFlagMode) {
-                                cells[index] = cell.copy(isFlagged = !cell.isFlagged)
+                                // Create a new list with the updated cell
+                                val newCells = cells.toMutableList().apply {
+                                    this[index] = cell.copy(isFlagged = !cell.isFlagged)
+                                }
+                                onBack(newCells)
                                 vibrationHelper.triggerVibration()
                             } else if (!cell.isFlagged) {
+                                val newCells = cells.toMutableList()
+
                                 if (isFirstClick) {
-                                    engine.placeMines(cells, cell)
+                                    engine.placeMines(newCells as SnapshotStateList<Cell>, cell)
                                     isFirstClick = false
                                 }
 
                                 if (cell.isMine) {
+                                    // Update game state
                                     gameState = "lost"
                                     vibrationHelper.triggerVibration()
-                                    cells.forEachIndexed { i, c ->
+
+                                    // Animate all mines
+                                    newCells.forEachIndexed { i, c ->
                                         if (c.isMine) {
-                                            // Рассчитываем строку для анимации "волны"
                                             val currentRow = i / cols
                                             val clickedRow = index / cols
-                                            animateReveal(i, (abs(currentRow - clickedRow) * 40L))
+                                            val delayMs = (abs(currentRow - clickedRow) * 40L).toLong()
+                                            animateReveal(i, delayMs)
                                         }
                                     }
                                 } else {
-                                    engine.revealEmptyCells(cells, cell)
-                                    cells.forEachIndexed { i, c ->
-                                        if (c.isRevealed && !animProgress.containsKey(i)) {
-                                            animateReveal(i, 0)
+                                    scope.launch {
+                                        // Вызываем движок.
+                                        // ВАЖНО: передаем лямбду, которая будет анимировать каждую ячейку
+                                        engine.revealEmptyCells(cell, cells) { revealedCell ->
+                                            val revealIndex = cells.indexOfFirst {
+                                                it.x == revealedCell.x && it.y == revealedCell.y
+                                            }
+                                            if (revealIndex != -1) {
+                                                // Вызываем твою функцию анимации для конкретного индекса
+                                                animateReveal(revealIndex, 0L)
+                                            }
                                         }
                                     }
                                 }
 
-                                if (cells.count { !it.isRevealed && !it.isMine } == 0) {
+                                // Check for win condition
+                                if (newCells.none { !it.isRevealed && !it.isMine }) {
                                     gameState = "won"
                                 }
+
+                                // Update the board with the new state
+                                onBack(newCells)
                             }
                         }
                     )
-                }
-            }
+                }            }
         }
 
         // Интерфейс

@@ -1,15 +1,13 @@
-package com.kiu.smoothmines.models
-
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
-// В файле, где объявлен globalSettings
-class GameSettings {
+object GameSettings {
     var showBorders by mutableStateOf(true)
+    var animationSpeed by mutableStateOf(300L)
     var vibrationEnabled by mutableStateOf(true)
-    var animationSpeed by mutableStateOf(300L) // скорость анимации в мс
+
+    // Сюда можно добавить метод для сохранения в память устройства
 }
 
-var globalSettings = GameSettings()
-// Глобальное состояние настроек в App.kt
+val globalSettings = GameSettings

@@ -30,6 +30,9 @@ kotlin {
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.material3)
+            implementation(compose.material)  // Add Material library
+            implementation(compose.material3)  // Add Material3
+            implementation(compose.materialIconsExtended)  // Add Material Icons Extended
             implementation(compose.ui)
             implementation(compose.components.resources)
             implementation(compose.components.uiToolingPreview)

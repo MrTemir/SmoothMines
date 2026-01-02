@@ -1,21 +1,27 @@
+
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import com.kiu.smoothmines.platform.getPlatformContext
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import com.kiu.smoothmines.models.Cell
 import com.kiu.smoothmines.models.Difficulties
 import com.kiu.smoothmines.models.SaveData
+import com.kiu.smoothmines.platform.getPlatformContext
 import com.kiu.smoothmines.ui.MenuScreen
 import com.kiu.smoothmines.ui.MineBackHandler
 import com.kiu.smoothmines.ui.MineField
 import com.kiu.smoothmines.ui.MinesTheme
+import com.kiu.smoothmines.ui.SettingsDialog
 import com.kiu.smoothmines.ui.ThemePresets
 import com.kiu.smoothmines.utils.VibrationHelper
 
@@ -25,28 +31,29 @@ import com.kiu.smoothmines.utils.VibrationHelper
 fun App() {
     var currentScreen by remember { mutableStateOf("menu") }
     var themeIndex by remember { mutableStateOf(0) }
-    val themeTarget = ThemePresets[themeIndex]
+    val currentTheme = ThemePresets[themeIndex]
 
     var activeConfig by remember { mutableStateOf(Difficulties[0]) }
     var initialCells by remember { mutableStateOf<List<Cell>?>(null) }
     var savedGames by remember { mutableStateOf(listOf<SaveData>()) }
 
     // Анимация цветов темы
-    val bgColor by animateColorAsState(themeTarget.background, tween(800))
-    val accentColor by animateColorAsState(themeTarget.accent, tween(800))
-    val textColor by animateColorAsState(themeTarget.textColor, tween(800))
-    val cellOpenedColor by animateColorAsState(themeTarget.cellOpened, tween(800))
-    val cellClosedColor by animateColorAsState(themeTarget.cellClosed, tween(800))
+    val bgColor by animateColorAsState(currentTheme.background, tween(800))
+    val accentColor by animateColorAsState(currentTheme.accent, tween(800))
+    val textColor by animateColorAsState(currentTheme.textColor, tween(800))
+    val cellOpenedColor by animateColorAsState(currentTheme.cellOpened, tween(800))
+    val cellClosedColor by animateColorAsState(currentTheme.cellClosed, tween(800))
     val vibrationHelper = VibrationHelper.getInstance()
 
     val animatedTheme = remember(bgColor, accentColor, textColor, cellOpenedColor, cellClosedColor) {
         MinesTheme(
-            name = themeTarget.name,
+            name = currentTheme.name,
             background = bgColor,
             accent = accentColor,
             textColor = textColor,
             cellOpened = cellOpenedColor,
-            cellClosed = cellClosedColor
+            cellClosed = cellClosedColor,
+            isGlass = currentTheme.isGlass
         )
     }
 
@@ -62,9 +69,19 @@ fun App() {
         Box(modifier = Modifier.fillMaxSize().background(animatedTheme.background)) {
             Crossfade(targetState = currentScreen, animationSpec = tween(500)) { screen ->
                 when (screen) {
+                    "settings" -> SettingsDialog(
+                        onDismiss = { currentScreen = "menu" },
+                        theme = animatedTheme
+                    )
+
                     "menu" -> MenuScreen(
                         currentTheme = animatedTheme,
-                        onNextTheme = { themeIndex = (themeIndex + 1) % ThemePresets.size },
+                        onNextTheme = {
+                            themeIndex = (themeIndex + 1) % ThemePresets.size
+                        },
+                        onPrevTheme = {
+                            themeIndex = if (themeIndex == 0) ThemePresets.size - 1 else themeIndex - 1
+                        },
                         onStartGame = { config ->
                             activeConfig = config
                             initialCells = null

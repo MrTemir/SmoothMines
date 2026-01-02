@@ -6,10 +6,40 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -18,12 +48,8 @@ import androidx.compose.ui.unit.sp
 import com.kiu.smoothmines.models.Difficulties
 import com.kiu.smoothmines.models.GameConfig
 import com.kiu.smoothmines.models.SaveData
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import com.kiu.smoothmines.models.globalSettings
+import globalSettings
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,47 +123,32 @@ fun SettingsDialog(onDismiss: () -> Unit, theme: MinesTheme) {
         }
     )
 }
+
 @Composable
 fun MenuScreen(
     onStartGame: (GameConfig) -> Unit,
     onContinueGame: (SaveData) -> Unit,
     currentTheme: MinesTheme,
     onNextTheme: () -> Unit,
+    onPrevTheme: () -> Unit,  // Add this line
     savedGames: List<SaveData>
-)  {
-    var showCustomDialog by remember { mutableStateOf(false) }
+) {
+    var themeIndex by remember { mutableStateOf(0) }
+    val currentTheme = ThemePresets[themeIndex]
 
-    // Состояния для полей ввода
+    var showCustomDialog by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) } // Состояние для настроек
+
+    // Состояния для полей ввода кастомной игры
     var rowsInput by remember { mutableStateOf("20") }
     var colsInput by remember { mutableStateOf("20") }
     var minesInput by remember { mutableStateOf("40") }
-    @Composable
-    fun CustomInputField(label: String, value: String, theme: MinesTheme, onValueChange: (String) -> Unit) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = { inputString ->
-                // Оставляем только цифры
-                val filtered = inputString.filter { char -> char.isDigit() }
-                onValueChange(filtered)
-            },
-            label = { Text(label, fontSize = 12.sp) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = theme.accent,
-                unfocusedBorderColor = theme.textColor.copy(0.3f),
-                focusedLabelColor = theme.accent,
-                cursorColor = theme.accent,
-                focusedTextColor = theme.textColor,
-                unfocusedTextColor = theme.textColor
-            )
-        )
-    }
+
     Surface(modifier = Modifier.fillMaxSize(), color = currentTheme.background) {
         Column(
             modifier = Modifier.fillMaxSize().padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center // Это обеспечит центрирование
+            verticalArrangement = Arrangement.Center
         ) {
             Text(
                 "SmoothMines",
@@ -146,7 +157,7 @@ fun MenuScreen(
                 color = currentTheme.textColor
             )
 
-            // Блок сохранений (появляется и сдвигает остальное)
+            // Блок сохранений
             AnimatedVisibility(
                 visible = savedGames.isNotEmpty(),
                 enter = expandVertically() + fadeIn(),
@@ -169,7 +180,7 @@ fun MenuScreen(
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // Кнопки новой игры
+            // Кнопки сложностей
             Difficulties.forEach { config ->
                 Button(
                     onClick = { onStartGame(config) },
@@ -177,24 +188,81 @@ fun MenuScreen(
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = currentTheme.accent)
                 ) {
-                    Text(config.difficultyName, fontWeight = FontWeight.Bold)
+                    Text(config.difficultyName.uppercase(), fontWeight = FontWeight.Bold)
                 }
             }
-                OutlinedButton(
-                    onClick = { showCustomDialog = true },
-                    modifier = Modifier.fillMaxWidth().height(56.dp).padding(vertical = 4.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(2.dp, currentTheme.accent)
-                ) {
-                    Text("СВОЯ ИГРА", color = currentTheme.accent, fontWeight = FontWeight.Bold)
+
+            // Кнопка СВОЯ ИГРА
+            OutlinedButton(
+                onClick = { showCustomDialog = true },
+                modifier = Modifier.fillMaxWidth().height(56.dp).padding(vertical = 4.dp),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(2.dp, currentTheme.accent)
+            ) {
+                Text("СВОЯ ИГРА", color = currentTheme.accent, fontWeight = FontWeight.Bold)
+            }
+
+            // --- ДОБАВЛЕННАЯ КНОПКА НАСТРОЕК ---
+            Button(
+                onClick = { showSettingsDialog = true },
+                modifier = Modifier.fillMaxWidth().height(56.dp).padding(vertical = 4.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = currentTheme.cellClosed)
+            ) {
+                Text("НАСТРОЙКИ", color = currentTheme.textColor, fontWeight = FontWeight.Bold)
+            }
+
+
+            // Кнопка смены темы со стрелками
+            Row(
+                modifier = Modifier
+                    .padding(top = 24.dp)
+                    .fillMaxWidth(), // Растягиваем, чтобы было проще центровать
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+
+            ) {
+                // Стрелка ВЛЕВО
+                IconButton(onClick = onPrevTheme) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowLeft,
+                        contentDescription = "Предыдущая тема",
+                        tint = currentTheme.textColor.copy(0.6f)
+                    )
                 }
 
-            // Кнопка смены темы (внизу)
-            TextButton(onClick = onNextTheme, modifier = Modifier.padding(top = 16.dp)) {
-                Text("СМЕНИТЬ ТЕМУ", color = currentTheme.textColor.copy(0.6f))
+                // Название текущей темы с фиксированной шириной
+                Column(
+                    modifier = Modifier.width(160.dp), // ФИКСИРОВАННАЯ ШИРИНА: стрелки больше не сдвинутся
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "ТЕМАТИКА",
+                        fontSize = 10.sp,
+                        letterSpacing = 2.sp,
+                        color = currentTheme.textColor.copy(0.4f),
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        currentTheme.name.uppercase(),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = currentTheme.textColor,
+                        maxLines = 1 // Чтобы текст не прыгал на вторую строку
+                    )
+                }
+
+                // Стрелка ВПРАВО
+                IconButton(onClick = onNextTheme) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowRight,
+                        contentDescription = "Следующая тема",
+                        tint = currentTheme.textColor.copy(0.6f)
+                    )
+                }
             }
         }
-        // ДИАЛОГОВОЕ ОКНО
+        // Диалог настроек поля (Своя игра)
         if (showCustomDialog) {
             AlertDialog(
                 onDismissRequest = { showCustomDialog = false },
@@ -202,9 +270,9 @@ fun MenuScreen(
                 title = { Text("Настройки поля", color = currentTheme.textColor) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        CustomInputField("Строк (max 50)", rowsInput, currentTheme) { rowsInput = it.filter { c -> c.isDigit() } }
-                        CustomInputField("Столбцов (max 50)", colsInput, currentTheme) { colsInput = it.filter { c -> c.isDigit() } }
-                        CustomInputField("Мин", minesInput, currentTheme) { minesInput = it.filter { c -> c.isDigit() } }
+                        CustomInputField("Строк (max 50)", rowsInput, currentTheme) { rowsInput = it }
+                        CustomInputField("Столбцов (max 50)", colsInput, currentTheme) { colsInput = it }
+                        CustomInputField("Мин", minesInput, currentTheme) { minesInput = it }
                     }
                 },
                 confirmButton = {
@@ -213,7 +281,6 @@ fun MenuScreen(
                             val r = rowsInput.toIntOrNull()?.coerceIn(5, 50) ?: 10
                             val c = colsInput.toIntOrNull()?.coerceIn(5, 50) ?: 10
                             val m = minesInput.toIntOrNull()?.coerceIn(1, (r * c) - 1) ?: 10
-
                             onStartGame(GameConfig(r, c, m, "Кастом"))
                             showCustomDialog = false
                         },
@@ -224,5 +291,28 @@ fun MenuScreen(
                 }
             )
         }
+
+        // --- ДИАЛОГ ГЛОБАЛЬНЫХ НАСТРОЕК ---
+        if (showSettingsDialog) {
+            SettingsDialog(
+                onDismiss = { showSettingsDialog = false },
+                theme = currentTheme
+            )
+        }
     }
+}
+
+// Вынес CustomInputField отдельно для чистоты кода
+@Composable
+fun CustomInputField(label: String, value: String, theme: MinesTheme, onValueChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { input -> onValueChange(input.filter { it.isDigit() }) },
+        label = { Text(label, fontSize = 12.sp) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = theme.textColor
+        )
+    )
 }

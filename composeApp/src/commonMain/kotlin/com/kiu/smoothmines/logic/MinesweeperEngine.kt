@@ -1,6 +1,5 @@
 package com.kiu.smoothmines.logic
 
-import androidx.annotation.RequiresApi
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.kiu.smoothmines.models.Cell
 import kotlinx.coroutines.delay
@@ -17,45 +16,49 @@ class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
 
     suspend fun revealEmptyCells(
         startCell: Cell,
-        cells: MutableList<Cell>, // Убедись, что тут MutableList
+        cells: MutableList<Cell>,
         onCellRevealed: (Cell) -> Unit
     ) {
-        val queue = ArrayDeque<Pair<Cell, Int>>() // Пара: Ячейка и её дистанция
-        val visited = mutableSetOf<Pair<Int, Int>>()
+        val rows = 9 // Подставь переменную своего конфига
+        val cols = 9
+        val queue = ArrayDeque<Pair<Cell, Int>>()
+        val visited = mutableSetOf<Int>()
 
+        // Быстрый поиск индекса через координаты
+        fun getIndex(x: Int, y: Int) = x * cols + y
+
+        val startIndex = getIndex(startCell.x, startCell.y)
         queue.add(startCell to 0)
-        var currentDistance = 0
+        visited.add(startIndex)
+
+        var currentWaveDist = 0
 
         while (queue.isNotEmpty()) {
-            val (current, distance) = queue.removeFirst()
-            val pos = current.x to current.y
+            val (current, dist) = queue.removeFirst()
 
-            if (pos in visited) continue
-            visited.add(pos)
-
-            // Если мы перешли на новый уровень дистанции, делаем небольшую паузу
-            if (distance > currentDistance) {
-                delay(25L) // Время между "волнами"
-                currentDistance = distance
+            if (dist > currentWaveDist) {
+                delay(25L) // Та самая плавная волна
+                currentWaveDist = dist
             }
 
-            val index = cells.indexOfFirst { it.x == current.x && it.y == current.y }
-            if (index != -1 && !cells[index].isRevealed) {
-                // Обновляем состояние
-                cells[index] = cells[index].copy(isRevealed = true)
-                onCellRevealed(cells[index])
+            val idx = getIndex(current.x, current.y)
+            if (idx in cells.indices && !cells[idx].isMine) {
+                val updated = cells[idx].copy(isRevealed = true)
+                cells[idx] = updated
+                onCellRevealed(updated)
 
-                // Если рядом нет мин, добавляем соседей
-                if (cells[index].adjacentMines == 0) {
+                // Если вокруг нет мин, добавляем соседей
+                if (updated.adjacentMines == 0) {
                     for (dx in -1..1) {
                         for (dy in -1..1) {
-                            if (dx == 0 && dy == 0) continue
                             val nx = current.x + dx
                             val ny = current.y + dy
+                            val nIdx = getIndex(nx, ny)
 
-                            val neighbor = cells.find { it.x == nx && it.y == ny }
-                            if (neighbor != null && !neighbor.isRevealed && !neighbor.isMine) {
-                                queue.add(neighbor to distance + 1)
+                            if (nx in 0 until rows && ny in 0 until cols &&
+                                nIdx !in visited && !cells[nIdx].isRevealed) {
+                                visited.add(nIdx)
+                                queue.add(cells[nIdx] to dist + 1)
                             }
                         }
                     }
@@ -63,7 +66,6 @@ class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
             }
         }
     }
-
     // Update placeMines function to prevent crashes
     fun placeMines(cells: SnapshotStateList<Cell>, safeCell: Cell) {
         val totalCells = rows * cols

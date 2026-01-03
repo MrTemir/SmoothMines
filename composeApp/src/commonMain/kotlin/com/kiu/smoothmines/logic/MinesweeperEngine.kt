@@ -1,18 +1,15 @@
 package com.kiu.smoothmines.logic
 
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.kiu.smoothmines.models.Cell
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 
 class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
 
-    // Создаем пустое поле
     fun generateBoard(): List<Cell> {
-        val board = List(rows * cols) { index ->
+        return List(rows * cols) { index ->
             Cell(x = index / cols, y = index % cols)
         }
-        return board
     }
 
     suspend fun revealEmptyCells(
@@ -20,12 +17,10 @@ class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
         cells: MutableList<Cell>,
         onCellRevealed: (Cell) -> Unit
     ) {
-        val rows = 9 // Подставь переменную своего конфига
-        val cols = 9
         val queue = ArrayDeque<Pair<Cell, Int>>()
         val visited = mutableSetOf<Int>()
 
-        // Быстрый поиск индекса через координаты
+        // Используем параметры класса (rows, cols), а не жесткие числа!
         fun getIndex(x: Int, y: Int) = x * cols + y
 
         val startIndex = getIndex(startCell.x, startCell.y)
@@ -38,7 +33,7 @@ class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
             val (current, dist) = queue.removeFirst()
 
             if (dist > currentWaveDist) {
-                delay(25L) // Та самая плавная волна
+                delay(20L) // Плавная волна открытия
                 currentWaveDist = dist
             }
 
@@ -48,7 +43,6 @@ class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
                 cells[idx] = updated
                 onCellRevealed(updated)
 
-                // Если вокруг нет мин, добавляем соседей
                 if (updated.adjacentMines == 0) {
                     for (dx in -1..1) {
                         for (dy in -1..1) {
@@ -67,103 +61,47 @@ class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
             }
         }
     }
-    // Update placeMines function to prevent crashes
-    fun placeMines(cells: SnapshotStateList<Cell>, safeCell: Cell) {
-        val totalCells = rows * cols
-        // Рекомендую ограничить количество мин, чтобы не уйти в бесконечную рекурсию
-        // Для зоны 3х3 нужно минимум 9 свободных клеток.
-        val maxMines = totalCells - 9
-        val currentMinesCount = if (minesCount > maxMines) maxMines else minesCount
 
-        // Очищаем поле перед расстановкой (на случай ретрая)
-        for (i in cells.indices) {
-            cells[i] = cells[i].copy(isMine = false, adjacentMines = 0)
+    fun placeMines(cells: MutableList<Cell>, startCell: Cell, safeRadius: Int = 2) {
+        cells.forEachIndexed { i, cell ->
+            cells[i] = cell.copy(isMine = false, adjacentMines = 0)
         }
 
-        var minesPlaced = 0
-        val random = java.util.Random()
+        val availableIndices = cells.indices.filter { i ->
+            val c = cells[i]
+            abs(c.x - startCell.x) > safeRadius || abs(c.y - startCell.y) > safeRadius
+        }.shuffled()
 
-        // 1. Расстановка мин
-        while (minesPlaced < currentMinesCount) {
-            val randomIndex = random.nextInt(totalCells)
-            val targetCell = cells[randomIndex]
+        val minesToPlace = minOf(minesCount, availableIndices.size)
+        for (i in 0 until minesToPlace) {
+            val mineIdx = availableIndices[i]
+            cells[mineIdx] = cells[mineIdx].copy(isMine = true)
+        }
 
-            // ПРОВЕРКА ЗОНЫ 3х3:
-            // Если расстояние по X И по Y меньше или равно 1 — это зона 3х3 вокруг клика.
-            val isInsideSafeZone = abs(targetCell.x - safeCell.x) <= 1 &&
-                    abs(targetCell.y - safeCell.y) <= 1
+        recalculateNumbers(cells)
+    }
 
-            if (!targetCell.isMine && !isInsideSafeZone) {
-                cells[randomIndex] = targetCell.copy(isMine = true)
-                minesPlaced++
+    private fun recalculateNumbers(cells: MutableList<Cell>) {
+        cells.forEachIndexed { i, cell ->
+            if (!cell.isMine) {
+                cells[i] = cell.copy(adjacentMines = countAdjacentMines(cell, cells))
             }
-        }
-
-        // 2. Расчет цифр (оптимизировано)
-        for (i in cells.indices) {
-            val cell = cells[i]
-            if (cell.isMine) continue
-
-            var count = 0
-            for (dx in -1..1) {
-                for (dy in -1..1) {
-                    if (dx == 0 && dy == 0) continue
-                    val nx = cell.x + dx
-                    val ny = cell.y + dy
-
-                    // Важно: nx проверяем по рядам, ny по колонкам (или наоборот, зависит от твоей логики)
-                    if (nx in 0 until rows && ny in 0 until cols) {
-                        // Используй индекс вместо .find для скорости
-                        val neighborIndex = nx * cols + ny
-                        if (cells.getOrNull(neighborIndex)?.isMine == true) {
-                            count++
-                        }
-                    }
-                }
-            }
-            cells[i] = cell.copy(adjacentMines = count)
-        }
-
-        // 3. Проверка на наличие "пустой" ячейки (0)
-        // С зоной 3х3 это условие почти всегда выполняется автоматически,
-        // но оставляем для надежности.
-        if (cells.none { !it.isMine && it.adjacentMines == 0 }) {
-            placeMines(cells, safeCell)
         }
     }
 
-    // Считаем цифры вокруг мин (оптимизированная версия)
-    private fun calculateNumbers(board: List<Cell>) {
-        // Создаем карту для быстрого доступа к клеткам по координатам
-        val cellMap = board.associateBy { it.x to it.y }
-        
-        for (cell in board) {
-            if (cell.isMine) continue
-            
-            var count = 0
-            // Проверяем только существующие клетки вокруг
-            for (dx in -1..1) {
-                for (dy in -1..1) {
-                    if (dx == 0 && dy == 0) continue
-                    
-                    val nx = cell.x + dx
-                    val ny = cell.y + dy
-                    
-                    // Проверяем границы
-                    if (nx in 0 until rows && ny in 0 until cols) {
-                        val neighbor = cellMap[nx to ny]
-                        if (neighbor?.isMine == true) {
-                            count++
-                        }
-                    }
+    // Тот самый метод, которого не хватало
+    private fun countAdjacentMines(cell: Cell, cells: List<Cell>): Int {
+        var count = 0
+        for (dx in -1..1) {
+            for (dy in -1..1) {
+                if (dx == 0 && dy == 0) continue
+                val nx = cell.x + dx
+                val ny = cell.y + dy
+                if (nx in 0 until rows && ny in 0 until cols) {
+                    if (cells[nx * cols + ny].isMine) count++
                 }
             }
-            
-            // Обновляем клетку
-            val index = board.indexOf(cell)
-            if (index != -1) {
-                (board as? SnapshotStateList<Cell>)?.set(index, cell.copy(adjacentMines = count))
-            }
         }
+        return count
     }
 }

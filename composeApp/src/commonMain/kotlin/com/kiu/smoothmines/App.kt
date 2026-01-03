@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -16,92 +15,78 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import com.kiu.smoothmines.models.Cell
 import com.kiu.smoothmines.models.GameConfig
 import com.kiu.smoothmines.models.SaveData
 import com.kiu.smoothmines.models.initSettings
 import com.kiu.smoothmines.platform.PlatformSettings
 import com.kiu.smoothmines.platform.getPlatformContext
+import com.kiu.smoothmines.ui.AppThemes
 import com.kiu.smoothmines.ui.MenuScreen
 import com.kiu.smoothmines.ui.MineField
 import com.kiu.smoothmines.ui.MinesTheme
-import com.kiu.smoothmines.ui.ThemePresets
+import com.kiu.smoothmines.ui.ThemeDecorations
 import com.kiu.smoothmines.utils.VibrationHelper
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun App() {
-    // 1. Инициализация платформенных штук
     val platformSettings = remember { PlatformSettings() }
     val settingsManager = remember { initSettings(platformSettings) }
     val context = getPlatformContext()
-    val vibrationHelper = VibrationHelper.getInstance()
+    VibrationHelper.getInstance()
 
-    // 2. Состояния экранов и данных
     var currentScreen by remember { mutableStateOf("menu") }
-    var activeConfig by remember { mutableStateOf<GameConfig?>(null) } // ТОЛЬКО ОДНО ОБЪЯВЛЕНИЕ
+    var activeConfig by remember { mutableStateOf<GameConfig?>(null) }
     var initialCells by remember { mutableStateOf<List<Cell>?>(null) }
+
+    // Список сохранений (можно потом привязать к базе данных или файлу)
     var savedGames by remember { mutableStateOf(listOf<SaveData>()) }
 
-    // 3. Управление темой
     var themeIndex by remember { mutableIntStateOf(settingsManager.savedThemeIndex) }
-    val baseTheme = ThemePresets[themeIndex]
+    val baseTheme = AppThemes.themes[themeIndex % AppThemes.themes.size]
 
-    // Инициализация вибрации
-    DisposableEffect(Unit) {
-        vibrationHelper.initialize(context)
-        onDispose { }
-    }
+    // Плавная анимация цветов при смене темы
+    val bgColor by animateColorAsState(baseTheme.background, tween(600))
+    val accentColor by animateColorAsState(baseTheme.accent, tween(600))
+    val textColor by animateColorAsState(baseTheme.textColor, tween(600))
+    val cellClosedColor by animateColorAsState(baseTheme.cellClosed, tween(600))
 
-    // Анимация цветов темы
-    val animationDuration = settingsManager.animationSpeed.toInt().coerceIn(100, 1000)
-    val bgColor by animateColorAsState(baseTheme.background, tween(animationDuration))
-    val accentColor by animateColorAsState(baseTheme.accent, tween(animationDuration))
-    val textColor by animateColorAsState(baseTheme.textColor, tween(animationDuration))
-    val cellOpenedColor by animateColorAsState(baseTheme.cellOpened, tween(animationDuration))
-    val cellClosedColor by animateColorAsState(baseTheme.cellClosed, tween(animationDuration))
-
-    val animatedTheme = remember(bgColor, accentColor, textColor, cellOpenedColor, cellClosedColor, baseTheme.isGlass) {
+    val animatedTheme = remember(bgColor, accentColor, textColor, cellClosedColor, baseTheme.type) {
         MinesTheme(
             name = baseTheme.name,
+            type = baseTheme.type,
             background = bgColor,
             accent = accentColor,
             textColor = textColor,
-            cellOpened = cellOpenedColor,
             cellClosed = cellClosedColor,
-            isGlass = baseTheme.isGlass
+            cellOpened = Color.Transparent
         )
     }
 
     MaterialTheme {
+        // Основной контейнер с пастельным фоном
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    if (baseTheme.isGlass) {
-                        Brush.verticalGradient(listOf(Color(0xFF141E30), Color(0xFF243B55)))
-                    } else {
-                        SolidColor(bgColor)
-                    }
-                )
+                .background(bgColor)
         ) {
+            // ДОБАВЛЕНО: Теперь анимации рисуются на самом нижнем слое
+            ThemeDecorations(theme = animatedTheme)
+
             Crossfade(targetState = currentScreen, animationSpec = tween(500)) { screen ->
                 when (screen) {
                     "menu" -> MenuScreen(
-                        currentTheme = animatedTheme,
+                                currentTheme = animatedTheme, // Теперь тема передает правильный контрастный textColor
                         onNextTheme = {
-                            val newIndex = (themeIndex + 1) % ThemePresets.size
-                            themeIndex = newIndex
-                            settingsManager.updateThemeIndex(newIndex)
+                            themeIndex = (themeIndex + 1) % AppThemes.themes.size
+                            settingsManager.updateThemeIndex(themeIndex)
                         },
                         onPrevTheme = {
-                            // Логика "назад": если индекс стал -1, он перепрыгнет на конец списка
-                            val newIndex = (themeIndex - 1 + ThemePresets.size) % ThemePresets.size
-                            themeIndex = newIndex
-                            settingsManager.updateThemeIndex(newIndex)
+                            themeIndex =
+                                (themeIndex - 1 + AppThemes.themes.size) % AppThemes.themes.size
+                            settingsManager.updateThemeIndex(themeIndex)
                         },
                         onStartGame = { config ->
                             activeConfig = config
@@ -116,11 +101,9 @@ fun App() {
                         savedGames = savedGames,
                         settingsManager = settingsManager
                     )
-
                     "game" -> {
-                        val config = activeConfig
-                        if (config != null) {
-                            MineField(
+                    activeConfig?.let { config ->
+                        MineField(
                                 rows = config.rows,
                                 cols = config.cols,
                                 currentTheme = animatedTheme,
@@ -130,18 +113,15 @@ fun App() {
                                 settingsManager = settingsManager,
                                 onBack = { currentCells ->
                                     val newSave = SaveData(
-                                        slotIndex = savedGames.size + 1,
+                                        slotIndex = savedGames.size,
                                         config = config,
-                                        cells = currentCells.map { it.copy() },
-                                        date = "Слот ${savedGames.size + 1}"
+                                        cells = currentCells.toList(),
+                                        date = "Игра ${config.minesCount} мин"
                                     )
-                                    savedGames = savedGames + newSave
+                                    savedGames = listOf(newSave) + savedGames.take(2)
                                     currentScreen = "menu"
                                 }
                             )
-                        } else {
-                            // Если конфиг потерялся, возвращаемся в меню
-                            currentScreen = "menu"
                         }
                     }
                 }

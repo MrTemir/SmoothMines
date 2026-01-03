@@ -1,6 +1,7 @@
 package com.kiu.smoothmines.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -16,12 +17,15 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,6 +34,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -47,7 +52,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -55,11 +59,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -75,10 +79,10 @@ import org.jetbrains.compose.resources.painterResource
 import smoothmines.composeapp.generated.resources.Res
 import smoothmines.composeapp.generated.resources.flag_ic
 import smoothmines.composeapp.generated.resources.mine_ic
-import kotlin.math.abs
 import kotlin.math.max
 
-// --- ОСНОВНОЕ ИГРОВОЕ ПОЛЕ ---
+
+
 @Composable
 fun MineField(
     rows: Int,
@@ -92,9 +96,8 @@ fun MineField(
     onBack: (List<Cell>) -> Unit
 ) {
     LaunchedEffect(context) { vibrationHelper.initialize(context) }
-
-    val scope = rememberCoroutineScope()
     var showSettings by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val engine = remember(activeConfig) { MinesweeperEngine(rows, cols, activeConfig.minesCount) }
     val cells = remember(activeConfig) {
@@ -104,207 +107,210 @@ fun MineField(
         }
     }
 
-    var isFirstClick by remember { mutableStateOf(initialCells == null) }
+    var isFirstClick by remember { mutableStateOf(true) }
     var isFlagMode by remember { mutableStateOf(false) }
     var gameState by remember { mutableStateOf("playing") }
 
-    val scaleAnim = remember { Animatable(1.2f) }
-    val offsetAnim = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
-    val animProgress = remember { mutableStateMapOf<Int, Animatable<Float, *>>() }
+    // --- СОСТОЯНИЯ КАМЕРЫ ---
+    val scale = remember { Animatable(1.1f) }
+    val offset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    val shakeOffset = remember { Animatable(0f) }
 
-    fun animateReveal(index: Int, delayMs: Long) {
+    // ИСПРАВЛЕННЫЙ БЛОК: Сброс камеры при смене уровня
+    LaunchedEffect(rows, cols) {
+        scale.snapTo(1.1f)
+        offset.snapTo(Offset.Zero)
+    }
+
+    val transformState = rememberTransformableState { zoomChange, offsetChange, _ ->
+        if (!scale.isRunning && !offset.isRunning) {
+            val newScale = (scale.value * zoomChange).coerceIn(0.7f, 4f)
+            scope.launch { scale.snapTo(newScale) }
+            scope.launch { offset.snapTo(offset.value + offsetChange) }
+        }
+    }
+
+    // --- ФУНКЦИИ АНИМАЦИИ (Размер ячейки теперь зависит от Expert-режима) ---
+    fun focusOnCell(index: Int) {
+        val rowIndex = index / cols
+        val colIndex = index % cols
+        val cellSizePx = if (cols >= 21) 34f else 44f
+
+        val centerX = (cols - 1) * cellSizePx / 2f
+        val centerY = (rows - 1) * cellSizePx / 2f
+
+        val targetX = (centerX - colIndex * cellSizePx) * 1.5f
+        val targetY = (centerY - rowIndex * cellSizePx) * 1.5f
+
         scope.launch {
-            delay(delayMs)
-            if (index in cells.indices && !cells[index].isRevealed) {
-                cells[index] = cells[index].copy(isRevealed = true)
-                animProgress[index] = Animatable(0.7f).apply {
-                    animateTo(1f, tween(400, easing = LinearOutSlowInEasing))
-                }
-            }
+            launch { scale.animateTo(1.5f, tween(700, easing = FastOutSlowInEasing)) }
+            launch { offset.animateTo(Offset(targetX, targetY), tween(700, easing = FastOutSlowInEasing)) }
+        }
+    }
+
+    fun zoomOutToOverview() {
+        scope.launch {
+            launch { scale.animateTo(1.0f, tween(1200, easing = LinearOutSlowInEasing)) }
+            launch { offset.animateTo(Offset.Zero, tween(1200, easing = LinearOutSlowInEasing)) }
         }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(currentTheme.background)) {
-
-        // СЛОЙ 1: Сетка карты (тонкие линии)
-        Canvas(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(width = (cols * 44).dp, height = (rows * 44).dp)
-        ) {
-            val strokeWidth = 0.5.dp.toPx()
-            val color = currentTheme.textColor.copy(alpha = 0.05f)
-
-            // Вертикальные линии
-            for (i in 0..cols) {
-                val x = i * 44.dp.toPx()
-                drawLine(color, Offset(x, 0f), Offset(x, size.height), strokeWidth)
-            }
-            // Горизонтальные линии
-            for (i in 0..rows) {
-                val y = i * 44.dp.toPx()
-                drawLine(color, Offset(0f, y), Offset(size.width, y), strokeWidth)
-            }
-        }
-
-        // СЛОЙ 2: Игровое поле
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            // ПОДЛОЖКА для ровных краев — берет цвет закрытой ячейки из темы
-            Box(
-                modifier = Modifier
-                    .size(width = (cols * 44).dp, height = (rows * 44).dp)
-                    .background(currentTheme.cellClosed, RoundedCornerShape(16.dp))
-            ) {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(cols),
-                    modifier = Modifier.fillMaxSize(),
-                    userScrollEnabled = false
-                ) {
-                    itemsIndexed(cells) { index, cell ->
-                        AnimatedCellView(
-                            index = index,
-                            cells = cells,
-                            cols = cols,
-                            rows = rows, // Передай rows!
-                            currentTheme = currentTheme,
-                            progress = animProgress[index]?.value ?: 1f,
-                            settingsManager = settingsManager,
-                            onClick = {
-                                if (gameState != "playing" || cell.isRevealed) return@AnimatedCellView
-
-                                if (isFlagMode) {
-                                    cells[index] = cell.copy(isFlagged = !cell.isFlagged)
-                                    if (settingsManager.vibrationEnabled) vibrationHelper.triggerVibration()
-                                } else if (!cell.isFlagged) {
-                                    if (isFirstClick) {
-                                        isFirstClick = false
-                                        engine.placeMines(cells, cell)
-                                        cells.forEachIndexed { i, c ->
-                                            if (abs(c.x - cell.x) <= 1 && abs(c.y - cell.y) <= 1) {
-                                                animateReveal(
-                                                    i,
-                                                    (abs(c.x - cell.x) + abs(c.y - cell.y)) * 30L
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    val currentCell = cells[index]
-                                    if (currentCell.isMine) {
-                                        gameState = "lost"
-                                        if (settingsManager.vibrationEnabled) vibrationHelper.triggerVibration()
-                                        cells.forEachIndexed { i, c ->
-                                            if (c.isMine) animateReveal(
-                                                i,
-                                                (abs(c.x - currentCell.x) + abs(c.y - currentCell.y)) * 40L
-                                            )
-                                        }
-                                    } else {
-                                        scope.launch {
-                                            engine.revealEmptyCells(
-                                                currentCell,
-                                                cells
-                                            ) { revealed ->
-                                                val idx =
-                                                    cells.indexOfFirst { it.x == revealed.x && it.y == revealed.y }
-                                                if (idx != -1) animateReveal(
-                                                    idx,
-                                                    (abs(revealed.x - currentCell.x) + abs(revealed.y - currentCell.y)) * 30L
-                                                )
-                                            }
-                                        }
-                                    }
-                                    if (cells.none { !it.isRevealed && !it.isMine }) gameState =
-                                        "won"
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        // ИНТЕРФЕЙС
-        UIOverlay(
-            cells = cells,
-            config = activeConfig,
-            theme = currentTheme,
-            onSettingsClick = { showSettings = true },
-            onBackClick = { onBack(cells) }, // Вызываем callback выхода, передавая текущее состояние
-            isFlagMode = isFlagMode,
-            onModeChange = { isFlagMode = it }
-        )
-
-        if (showSettings) SettingsDialog(onDismiss = { showSettings = false }, theme = currentTheme, settingsManager = settingsManager)
-        if (gameState != "playing") GameOverScreen(gameState, currentTheme) {
-            cells.clear(); cells.addAll(engine.generateBoard()); animProgress.clear(); isFirstClick = true; gameState = "playing"
-        }
-    }
-}
-@Composable
-fun AnimatedCellView(
-    index: Int,
-    cells: List<Cell>,
-    cols: Int,
-    rows: Int,
-    currentTheme: MinesTheme,
-    progress: Float,
-    settingsManager: SettingsManager,
-    onClick: () -> Unit
-) {
-    val cell = cells[index]
-    val dynamicShape = remember(cell.isRevealed, cell.isFlagged) {
-        calculateCellStatusShape(index, cols, rows, cells) // Теперь передаем и rows
-    }
-
-    val scale by animateFloatAsState(
-        targetValue = if (cell.isRevealed || cell.isFlagged) 0.88f else 1.0f,
-        animationSpec = tween(300, easing = LinearOutSlowInEasing)
-    )
-
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .graphicsLayer {
-                // Используй значения напрямую из стейта анимации
-                scaleX = scale * progress
-                scaleY = scale * progress
-                // Это говорит системе не пересчитывать слои, если изменился только масштаб
-                clip = true
-                shape = dynamicShape
-                compositingStrategy = CompositingStrategy.Offscreen
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        // Заплатки для скругления внутреннего пространства острова
-        if (!cell.isRevealed && !cell.isFlagged) {
-            InnerCornerFillers(index, cols, cells, currentTheme.cellClosed)
-        }
+        ThemeDecorations(theme = currentTheme)
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(dynamicShape)
-                .background(
-                    if (cell.isRevealed) currentTheme.cellOpened// Проявляем сетку под ячейкой
-                    else currentTheme.cellClosed
-                )
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onClick() },
-            contentAlignment = Alignment.Center
+                .clipToBounds()
+                .transformable(state = transformState)
         ) {
-            if (cell.isRevealed) {
-                CellContent(cell, currentTheme)
-            } else if (cell.isFlagged) {
-                Icon(
-                    painter = painterResource(Res.drawable.flag_ic),
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = currentTheme.accent // Используем спокойный акцент из темы
-                )
+            // Увеличиваем размер ячейки для расчета, чтобы точно не было наслоения
+            val baseCellSize = if (cols >= 21) 36.dp else 46.dp
+            val fieldWidth = (cols.dp * baseCellSize.value)
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = scale.value,
+                        scaleY = scale.value,
+                        translationX = offset.value.x + shakeOffset.value,
+                        translationY = offset.value.y
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(cols),
+                    modifier = Modifier
+                        // Используем widthIn, чтобы поле не сжималось меньше своего размера
+                        .width(fieldWidth)
+                        .padding(48.dp)
+                        .wrapContentHeight(),
+                    userScrollEnabled = false,
+                    horizontalArrangement = Arrangement.spacedBy(if(settingsManager.showBorders) 1.dp else 0.dp),
+                    verticalArrangement = Arrangement.spacedBy(if(settingsManager.showBorders) 1.dp else 0.dp)
+                ) {
+                    itemsIndexed(
+                        items = cells,
+                        // КЛЮЧ: Используем индекс и состояние, чтобы Compose не перерисовывал лишнего
+                        key = { index, cell -> "${index}_${cell.isRevealed}_${cell.isFlagged}" }
+                    ) { index, cell ->
+                        // Считаем форму один раз для конкретной ячейки
+                        val dynamicShape = remember(cell.isRevealed, cell.isFlagged, index) {
+                            calculateCellStatusShape(index, cols, cells)
+                        }
+
+                        Box(
+                            modifier = Modifier.aspectRatio(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // ЭФФЕКТ ЖИДКОСТИ: Рисуем филлеры только если сетка выключена
+                            if (!settingsManager.showBorders) {
+                                InnerCornerFillers(index, cols, cells, currentTheme.cellClosed)
+                            }
+
+                            AnimatedCellView(
+                                cell = cell,
+                                theme = currentTheme,
+                                shape = dynamicShape,
+                                onClick = {
+                                    // Твоя логика клика...
+                                    if (cell.isRevealed || cell.isFlagged || gameState != "playing") return@AnimatedCellView
+
+                                    if (isFlagMode) {
+                                        cells[index] = cell.copy(isFlagged = !cell.isFlagged)
+                                    } else {
+                                        if (isFirstClick) {
+                                            isFirstClick = false
+                                            focusOnCell(index)
+                                            engine.placeMines(cells, cell, safeRadius = 2)
+                                            scope.launch { engine.revealEmptyCells(cells[index], cells) { } }
+                                        } else if (cell.isMine) {
+                                            // Логика проигрыша...
+                                            gameState = "lost"
+                                            zoomOutToOverview()
+                                            scope.launch {
+                                                val power = 20f * settingsManager.shakeIntensity
+                                                repeat(4) {
+                                                    shakeOffset.animateTo(power, tween(50))
+                                                    shakeOffset.animateTo(-power, tween(50))
+                                                }
+                                                shakeOffset.animateTo(0f, tween(50))
+                                            }
+                                            scope.launch {
+                                                cells.indices.filter { cells[it].isMine && !cells[it].isRevealed }
+                                                    .forEach { idx ->
+                                                        delay(50L)
+                                                        cells[idx] = cells[idx].copy(isRevealed = true)
+                                                        if (settingsManager.vibrationEnabled) vibrationHelper.triggerVibration()
+                                                    }
+                                            }
+                                        } else {
+                                            scope.launch { engine.revealEmptyCells(cell, cells) { } }
+                                            if (cells.none { !it.isMine && !it.isRevealed }) {
+                                                gameState = "won"
+                                                zoomOutToOverview()
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
             }
+        }
+    }
+        UIOverlay(cells, activeConfig, currentTheme, { showSettings = true }, { onBack(cells) }, isFlagMode) { isFlagMode = it }
+
+        if (gameState != "playing") {
+            Box(Modifier.fillMaxSize().padding(bottom = 120.dp), contentAlignment = Alignment.BottomCenter) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Button(onClick = { onBack(cells) }, colors = ButtonDefaults.buttonColors(currentTheme.cellClosed)) {
+                        Text("МЕНЮ", color = currentTheme.textColor)
+                    }
+                    Button(onClick = {
+                        cells.clear(); cells.addAll(engine.generateBoard())
+                        isFirstClick = true; gameState = "playing"
+                        scope.launch { scale.snapTo(1.2f); offset.snapTo(Offset.Zero) }
+                    }, colors = ButtonDefaults.buttonColors(currentTheme.accent)) {
+                        Text("ЗАНОВО", color = currentTheme.background)
+                    }
+                }
+            }
+        }
+        if (showSettings) SettingsDialog({ showSettings = false }, currentTheme, settingsManager)
+    }
+
+@Composable
+fun AnimatedCellView(
+    cell: Cell,
+    theme: MinesTheme,
+    shape: RoundedCornerShape, // Принимаем форму извне
+    onClick: () -> Unit
+) {
+    val alphaAnim by animateFloatAsState(if (cell.isRevealed) 0f else 1f, tween(400))
+    val scaleAnim by animateFloatAsState(if (cell.isRevealed) 0.8f else 1f, spring(Spring.DampingRatioMediumBouncy))
+    val contentAlpha by animateFloatAsState(if (cell.isRevealed) 1f else 0f, tween(300))
+
+    Box(
+        modifier = Modifier
+            .aspectRatio(1f)
+            .graphicsLayer {
+                scaleX = scaleAnim
+                scaleY = scaleAnim
+            }
+            // Используем переданную "жидкую" форму
+            .background(theme.cellClosed.copy(alpha = alphaAnim), shape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(Modifier.graphicsLayer { this.alpha = contentAlpha }) {
+            CellContent(cell, theme)
         }
     }
 }
@@ -351,45 +357,44 @@ private fun getNumberColor(number: Int): Color {
 // ---  ModeToggle ---
 @Composable
 fun ModeToggle(isFlagMode: Boolean, onModeChange: (Boolean) -> Unit, theme: MinesTheme) {
-    val indicatorOffset by animateDpAsState(
-        targetValue = if (isFlagMode) 20.dp else (-20).dp, // Чуть меньше ход
-        animationSpec = spring(stiffness = Spring.StiffnessLow)
-    )
+    val indicatorOffset by animateDpAsState(if (isFlagMode) 24.dp else (-24.dp))
 
     Box(
         modifier = Modifier
-            .width(90.dp) // Уменьшил ширину таблетки
+            .width(100.dp)
             .height(48.dp)
             .clip(CircleShape)
-            .background(theme.cellClosed.copy(0.3f))
+            .background(theme.cellClosed.copy(0.5f))
             .clickable { onModeChange(!isFlagMode) },
         contentAlignment = Alignment.Center
     ) {
-        // Индикатор
+        // Бегунок (фон за иконкой)
         Box(
             Modifier
                 .offset(x = indicatorOffset)
-                .size(38.dp)
+                .size(42.dp)
                 .background(theme.accent, CircleShape)
         )
 
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp), // Меньше отступ = иконки ближе к центру
-            horizontalArrangement = Arrangement.SpaceEvenly, // Сближаем иконки
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                painter = painterResource(Res.drawable.mine_ic),
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = if (!isFlagMode) theme.background else theme.accent.copy(0.6f)
-            )
-            Icon(
-                painter = painterResource(Res.drawable.flag_ic),
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = if (isFlagMode) theme.background else theme.accent.copy(0.6f)
-            )
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            // Иконка мины
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Icon(
+                    painter = painterResource(Res.drawable.mine_ic),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp), // Центрировано внутри веса
+                    tint = if (!isFlagMode) theme.background else theme.accent
+                )
+            }
+            // Иконка флажка
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Icon(
+                    painter = painterResource(Res.drawable.flag_ic),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp), // Центрировано внутри веса
+                    tint = if (isFlagMode) theme.background else theme.accent
+                )
+            }
         }
     }
 }
@@ -555,14 +560,18 @@ fun UIOverlay(
         ModeToggle(isFlagMode, onModeChange, theme)
     }
 }
-fun calculateCellStatusShape(index: Int, cols: Int, rows: Int, cells: List<Cell>): RoundedCornerShape {
+
+fun calculateCellStatusShape(index: Int, cols: Int, cells: List<Cell>): RoundedCornerShape {
     val cell = cells.getOrNull(index) ?: return RoundedCornerShape(0.dp)
-    if (cell.isRevealed || cell.isFlagged) return RoundedCornerShape(16.dp)
+
+    // Если ячейка открыта или с флагом — она "отлипает", скругляем ей углы
+    if (cell.isRevealed || cell.isFlagged) return RoundedCornerShape(12.dp)
 
     fun isSolid(idx: Int, colOffset: Int): Boolean {
         val targetCol = (index % cols) + colOffset
         if (targetCol < 0 || targetCol >= cols) return false
         val neighbor = cells.getOrNull(idx) ?: return false
+        // Сосед "липкий", только если он закрыт и БЕЗ флага
         return !neighbor.isRevealed && !neighbor.isFlagged
     }
 
@@ -571,10 +580,11 @@ fun calculateCellStatusShape(index: Int, cols: Int, rows: Int, cells: List<Cell>
     val l = isSolid(index - 1, -1)
     val r = isSolid(index + 1, 1)
 
+    // Если со всех сторон соседи — углы 0 (острые), если край — 12dp
     return RoundedCornerShape(
-        topStart = if (t && l) 0.dp else 16.dp,
-        topEnd = if (t && r) 0.dp else 16.dp,
-        bottomStart = if (b && l) 0.dp else 16.dp,
-        bottomEnd = if (b && r) 0.dp else 16.dp
+        topStart = if (t && l) 0.dp else 12.dp,
+        topEnd = if (t && r) 0.dp else 12.dp,
+        bottomStart = if (b && l) 0.dp else 12.dp,
+        bottomEnd = if (b && r) 0.dp else 12.dp
     )
 }

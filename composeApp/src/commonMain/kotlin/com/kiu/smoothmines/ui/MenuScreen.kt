@@ -2,7 +2,6 @@ package com.kiu.smoothmines.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,10 +19,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
@@ -39,13 +39,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kiu.smoothmines.models.Difficulties
 import com.kiu.smoothmines.models.GameConfig
 import com.kiu.smoothmines.models.SaveData
 import com.kiu.smoothmines.models.SettingsManager
@@ -81,15 +79,12 @@ fun SaveSlotCard(save: SaveData, theme: MinesTheme, onClick: () -> Unit) {
     }
 }
 @Composable
-fun SettingsDialog(
-    onDismiss: () -> Unit,
-    theme: MinesTheme,
-    settingsManager: SettingsManager
-) {
+fun SettingsDialog(onDismiss: () -> Unit, theme: MinesTheme, settingsManager: SettingsManager) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = theme.cellOpened,
-        title = { Text("Настройки", color = theme.textColor) },
+        containerColor = theme.background, // ИСПРАВЛЕНО: теперь фон непрозрачный
+        modifier = Modifier.clip(RoundedCornerShape(28.dp)),
+        title = { Text("Настройки", color = theme.textColor, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 // Линии сетки
@@ -98,6 +93,15 @@ fun SettingsDialog(
                     Switch(
                         checked = settingsManager.showBorders,
                         onCheckedChange = { settingsManager.updateShowBorders(it) } // Исправлено
+                    )
+                }
+
+                // Вибрация
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Вибрация", modifier = Modifier.weight(1f), color = theme.textColor)
+                    Switch(
+                        checked = settingsManager.vibrationEnabled,
+                        onCheckedChange = { settingsManager.updateVibrationEnabled(it) } // Исправлено
                     )
                 }
 
@@ -115,13 +119,38 @@ fun SettingsDialog(
                     )
                 }
 
-                // Вибрация
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Вибрация", modifier = Modifier.weight(1f), color = theme.textColor)
-                    Switch(
-                        checked = settingsManager.vibrationEnabled,
-                        onCheckedChange = { settingsManager.updateVibrationEnabled(it) } // Исправлено
+                // В SettingsDialog.kt
+                Spacer(Modifier.height(16.dp))
+
+                Text(
+                    text = "Сила тряски: ${(settingsManager.shakeIntensity * 100).toInt()}%",
+                    color = theme.textColor,
+                    fontSize = 16.sp
+                )
+                // Слайдер для регулировки
+                androidx.compose.material3.Slider(
+                    value = settingsManager.shakeIntensity,
+                    onValueChange = { settingsManager.updateShakeIntensity(it) },
+                    valueRange = 0f..1f,
+                    colors = androidx.compose.material3.SliderDefaults.colors(
+                        thumbColor = theme.accent,
+                        activeTrackColor = theme.accent,
+                        inactiveTrackColor = theme.accent.copy(alpha = 0.2f)
                     )
+                )
+                Text("Лимит FPS: ${if(settingsManager.fpsLimit == 0f) "Макс" else settingsManager.fpsLimit.toInt()}", color = theme.textColor)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(60f, 90f, 120f, 0f).forEach { limit ->
+                        Button(
+                            onClick = { settingsManager.updateFpsLimit(limit) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if(settingsManager.fpsLimit == limit) theme.accent else theme.cellClosed
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(if(limit == 0f) "∞" else limit.toInt().toString(), fontSize = 10.sp)
+                        }
+                    }
                 }
             }
         },
@@ -143,11 +172,6 @@ fun MenuScreen(
     var showCustomDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
 
-    var rowsInput by remember { mutableStateOf("20") }
-    var colsInput by remember { mutableStateOf("20") }
-    var minesInput by remember { mutableStateOf("40") }
-
-    // Используем прозрачный Surface, так как фон (градиент) теперь в App.kt
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -161,7 +185,6 @@ fun MenuScreen(
                 color = currentTheme.textColor
             )
 
-            // Блок сохранений
             AnimatedVisibility(visible = savedGames.isNotEmpty()) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Spacer(modifier = Modifier.height(24.dp))
@@ -179,31 +202,36 @@ fun MenuScreen(
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // ВСЕ КНОПКИ ТЕПЕРЬ ОДИНАКОВЫЕ
-            Difficulties.forEach { config ->
-                MenuTextButton(config.difficultyName, currentTheme) { onStartGame(config) }
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Обновленные размеры согласно твоей просьбе (9x12, 16x18, 21x24)
+                MenuTextButton("Новичок (9x12)", currentTheme) {
+                    onStartGame(GameConfig(12, 9, 10, "Новичок"))
+                }
+                MenuTextButton("Любитель (16x18)", currentTheme) {
+                    onStartGame(GameConfig(18, 16, 40, "Любитель"))
+                }
+                MenuTextButton("Эксперт (21x24)", currentTheme) {
+                    onStartGame(GameConfig(24, 21, 99, "Эксперт"))
+                }
+
+                MenuTextButton("Своя игра", currentTheme) { showCustomDialog = true }
+                MenuTextButton("Настройки", currentTheme) { showSettingsDialog = true }
             }
 
-            MenuTextButton("Своя игра", currentTheme) { showCustomDialog = true }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            MenuTextButton("Настройки", currentTheme) { showSettingsDialog = true }
-
-            // Переключатель темы
             ThemeSwitcher(currentTheme, onPrevTheme, onNextTheme)
         }
 
-        // Диалоги
         if (showCustomDialog) {
             CustomGameDialog(
-                currentTheme,
-                rowsInput, colsInput, minesInput,
-                onRowsChange = { rowsInput = it },
-                onColsChange = { colsInput = it },
-                onMinesChange = { minesInput = it },
+                theme = currentTheme,
                 onDismiss = { showCustomDialog = false },
-                onConfirm = { r, c, m -> onStartGame(GameConfig(r, c, m, "Кастом")) }
+                onConfirm = { r, c, m ->
+                    onStartGame(GameConfig(r, c, m, "Кастом"))
+                    showCustomDialog = false
+                }
             )
         }
 
@@ -212,50 +240,114 @@ fun MenuScreen(
         }
     }
 }
+
 @Composable
 fun CustomGameDialog(
     theme: MinesTheme,
-    rows: String,
-    cols: String,
-    mines: String,
-    onRowsChange: (String) -> Unit,
-    onColsChange: (String) -> Unit,
-    onMinesChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onConfirm: (Int, Int, Int) -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = theme.cellOpened,
-        title = { Text("Своя игра", color = theme.textColor) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                CustomInputField("Строк (5-50)", rows, theme, onRowsChange)
-                CustomInputField("Столбцов (5-50)", cols, theme, onColsChange)
-                CustomInputField("Мин", mines, theme, onMinesChange)
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val r = rows.toIntOrNull()?.coerceIn(5, 50) ?: 10
-                    val c = cols.toIntOrNull()?.coerceIn(5, 50) ?: 10
-                    val m = mines.toIntOrNull()?.coerceIn(1, (r * c) - 1) ?: 10
-                    onConfirm(r, c, m)
-                    onDismiss()
-                }
+    // Начальные значения для кастомного уровня
+    var r by remember { mutableStateOf(15f) }
+    var c by remember { mutableStateOf(15f) }
+    var m by remember { mutableStateOf(20f) }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(0.4f))
+            .clickable { onDismiss() },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .appleGlass(theme) // Эффект стекла
+                .padding(24.dp)
+                .clickable(enabled = false) { }, // Чтобы клик внутри не закрывал диалог
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                "НАСТРОЙКА ПОЛЯ",
+                color = theme.textColor,
+                fontWeight = FontWeight.Black,
+                fontSize = 20.sp
+            )
+
+            Spacer(Modifier.height(24.dp))
+
+            CustomSlider(
+                label = "Строки",
+                value = r,
+                current = r.toInt(),
+                min = 5f, max = 40f,
+                theme = theme
+            ) { r = it }
+
+            CustomSlider(
+                label = "Колонки",
+                value = c,
+                current = c.toInt(),
+                min = 5f, max = 30f,
+                theme = theme
+            ) { c = it }
+
+            // Ограничиваем кол-во мин, чтобы оно не превышало кол-во ячеек
+            val maxMines = (r.toInt() * c.toInt() * 0.8f)
+            if (m > maxMines) m = maxMines
+
+            CustomSlider(
+                label = "Мины",
+                value = m,
+                current = m.toInt(),
+                min = 1f, max = maxMines,
+                theme = theme
+            ) { m = it }
+
+            Spacer(Modifier.height(32.dp))
+
+            Button(
+                onClick = { onConfirm(r.toInt(), c.toInt(), m.toInt()) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = theme.accent,
+                    contentColor = theme.background
+                ),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().height(56.dp)
             ) {
-                Text("СОЗДАТЬ", color = theme.accent, fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("ОТМЕНА", color = theme.textColor.copy(0.6f))
+                Text("ПОЕХАЛИ", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
         }
-    )
+    }
 }
 
+@Composable
+fun CustomSlider(
+    label: String,
+    value: Float,
+    current: Int,
+    min: Float,
+    max: Float,
+    theme: MinesTheme,
+    onValueChange: (Float) -> Unit
+) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = theme.textColor.copy(0.6f), fontSize = 12.sp)
+            Text(current.toString(), color = theme.accent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = min..max,
+            colors = SliderDefaults.colors(
+                thumbColor = theme.accent,
+                activeTrackColor = theme.accent,
+                inactiveTrackColor = theme.textColor.copy(0.1f)
+            )
+        )
+    }
+}
 // Вспомогательный компонент для переключателя тем
 @Composable
 fun ThemeSwitcher(theme: MinesTheme, onPrev: () -> Unit, onNext: () -> Unit) {
@@ -291,40 +383,16 @@ fun CustomInputField(label: String, value: String, theme: MinesTheme, onValueCha
     )
 }
 @Composable
-fun MenuTextButton(
-    text: String,
-    currentTheme: MinesTheme,
-    onClick: () -> Unit
-) {
+fun MenuTextButton(text: String, currentTheme: MinesTheme, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .padding(vertical = 4.dp)
-            .width(200.dp) // Единая ширина для всех кнопок
-            .height(48.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .fillMaxWidth(0.6f)
+            .height(56.dp) // Фиксированная высота для стабильности
+            .clip(RoundedCornerShape(16.dp))
+            .background(currentTheme.cellClosed) // Пастельный фон ячейки
             .clickable { onClick() },
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center // Центрируем текст строго посередине
     ) {
-        if (currentTheme.isGlass) {
-            // Эффект стекла (только фон блюрится)
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.White.copy(0.08f))
-                    .blur(12.dp)
-                    .border(0.5.dp, Color.White.copy(0.15f), RoundedCornerShape(12.dp))
-            )
-        } else {
-            // Обычная тема
-            Box(Modifier.fillMaxSize().background(currentTheme.cellClosed.copy(0.3f)))
-        }
-
-        Text(
-            text = text.uppercase(),
-            color = if (currentTheme.isGlass) Color.White else currentTheme.textColor,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp
-        )
+        Text(text.uppercase(), color = currentTheme.textColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
     }
 }

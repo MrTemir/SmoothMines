@@ -42,13 +42,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kiu.smoothmines.models.Difficulties
 import com.kiu.smoothmines.models.GameConfig
 import com.kiu.smoothmines.models.SaveData
-import globalSettings
+import com.kiu.smoothmines.models.SettingsManager
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -81,7 +83,11 @@ fun SaveSlotCard(save: SaveData, theme: MinesTheme, onClick: () -> Unit) {
     }
 }
 @Composable
-fun SettingsDialog(onDismiss: () -> Unit, theme: MinesTheme) {
+fun SettingsDialog(
+    onDismiss: () -> Unit, 
+    theme: MinesTheme,
+    settingsManager: SettingsManager
+) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = theme.cellOpened,
@@ -92,17 +98,17 @@ fun SettingsDialog(onDismiss: () -> Unit, theme: MinesTheme) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Линии сетки", modifier = Modifier.weight(1f), color = theme.textColor)
                     Switch(
-                        checked = globalSettings.showBorders,
-                        onCheckedChange = { globalSettings.showBorders = it }
+                        checked = settingsManager.showBorders,
+                        onCheckedChange = { settingsManager.showBorders = it }
                     )
                 }
 
                 // Скорость анимации
                 Column {
-                    Text("Скорость анимации: ${globalSettings.animationSpeed}мс", color = theme.textColor)
+                    Text("Скорость анимации: ${settingsManager.animationSpeed}мс", color = theme.textColor)
                     Slider(
-                        value = globalSettings.animationSpeed.toFloat(),
-                        onValueChange = { globalSettings.animationSpeed = it.toLong() },
+                        value = settingsManager.animationSpeed.toFloat(),
+                        onValueChange = { settingsManager.animationSpeed = it.toLong() },
                         valueRange = 100f..1000f,
                         colors = SliderDefaults.colors(thumbColor = theme.accent)
                     )
@@ -112,8 +118,8 @@ fun SettingsDialog(onDismiss: () -> Unit, theme: MinesTheme) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Вибрация", modifier = Modifier.weight(1f), color = theme.textColor)
                     Switch(
-                        checked = globalSettings.vibrationEnabled,
-                        onCheckedChange = { globalSettings.vibrationEnabled = it }
+                        checked = settingsManager.vibrationEnabled,
+                        onCheckedChange = { settingsManager.vibrationEnabled = it }
                     )
                 }
             }
@@ -130,12 +136,10 @@ fun MenuScreen(
     onContinueGame: (SaveData) -> Unit,
     currentTheme: MinesTheme,
     onNextTheme: () -> Unit,
-    onPrevTheme: () -> Unit,  // Add this line
-    savedGames: List<SaveData>
+    onPrevTheme: () -> Unit,
+    savedGames: List<SaveData>,
+    settingsManager: SettingsManager
 ) {
-    var themeIndex by remember { mutableStateOf(0) }
-    val currentTheme = ThemePresets[themeIndex]
-
     var showCustomDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) } // Состояние для настроек
 
@@ -184,9 +188,16 @@ fun MenuScreen(
             Difficulties.forEach { config ->
                 Button(
                     onClick = { onStartGame(config) },
-                    modifier = Modifier.fillMaxWidth().height(56.dp).padding(vertical = 4.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        // Если стекло — делаем кнопку белой и прозрачной
+                        containerColor = if (currentTheme.isGlass) Color.White.copy(alpha = 0.15f) else currentTheme.accent,
+                        contentColor = if (currentTheme.isGlass) Color.White else currentTheme.background
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(if (currentTheme.isGlass) Modifier.blur(10.dp) else Modifier), // Блюр для эффекта
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = currentTheme.accent)
+                    border = if (currentTheme.isGlass) BorderStroke(0.5.dp, Color.White.copy(0.3f)) else null
                 ) {
                     Text(config.difficultyName.uppercase(), fontWeight = FontWeight.Bold)
                 }
@@ -296,7 +307,8 @@ fun MenuScreen(
         if (showSettingsDialog) {
             SettingsDialog(
                 onDismiss = { showSettingsDialog = false },
-                theme = currentTheme
+                theme = currentTheme,
+                settingsManager = settingsManager
             )
         }
     }

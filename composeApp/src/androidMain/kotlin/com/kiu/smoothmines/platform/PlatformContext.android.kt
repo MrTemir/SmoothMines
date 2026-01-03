@@ -2,11 +2,10 @@ package com.kiu.smoothmines.platform
 
 import android.content.Context
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 
-actual class PlatformContext(context: Context) {
-    val androidContext: Context = context
+actual class PlatformContext actual constructor(context: Any) {
+    val androidContext: Context = context as Context
 }
 
 @Composable

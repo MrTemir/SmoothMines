@@ -60,8 +60,9 @@ import androidx.compose.ui.unit.sp
 import com.kiu.smoothmines.logic.MinesweeperEngine
 import com.kiu.smoothmines.models.Cell
 import com.kiu.smoothmines.models.GameConfig
+import com.kiu.smoothmines.models.SettingsManager
 import com.kiu.smoothmines.utils.VibrationHelper
-import globalSettings
+import com.kiu.smoothmines.models.globalSettings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
@@ -70,7 +71,6 @@ import smoothmines.composeapp.generated.resources.flag_ic
 import smoothmines.composeapp.generated.resources.mine_ic
 import kotlin.math.abs
 import kotlin.math.max
-
 
 // --- ЛОГИКА ВИБРАЦИИ ---
 @Composable
@@ -92,6 +92,7 @@ fun MineField(
     initialCells: List<Cell>? = null,
     context: Any,
     vibrationHelper: VibrationHelper = VibrationHelper.getInstance(),
+    settingsManager: SettingsManager,
     onBack: (List<Cell>) -> Unit
 ) {
     // --- Анимация входа ---
@@ -132,22 +133,23 @@ fun MineField(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(currentTheme.background)) {
-        // ДОБАВЛЯЕМ ГРАДИЕНТ ДЛЯ ТЕМЫ GLASS
-        if (currentTheme.isGlass) {
-            val glassGradient = Brush.verticalGradient(
-                colors = listOf(
-                    Color(0xFF0F2027), // Почти черный у верха
-                    Color(0xFF203A43), // Глубокий серо-синий
-                    Color(0xFF2C5364)  // Приглушенный синий у низа
+    Box(modifier = Modifier
+        .fillMaxSize()
+        .background(
+            if (currentTheme.isGlass) {
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF0F2027), // Глубокий темный
+                        Color(0xFF203A43),
+                        Color(0xFF2C5364)  // Светлее к низу
+                    )
                 )
-            )
-            Box(Modifier.fillMaxSize().background(
-                androidx.compose.ui.graphics.Brush.verticalGradient(
-                    listOf(currentTheme.background, Color(0xFF2C5364))
-                )
-            ))
-        }
+            } else {
+                // Для обычных тем используем сплошной цвет из модели
+                androidx.compose.ui.graphics.SolidColor(currentTheme.background)
+            }
+        )
+    ) {
 
         // 1. Слой игры
         Box(
@@ -175,10 +177,8 @@ fun MineField(
                 modifier = Modifier
                     .wrapContentSize(unbounded = true)
                     .clip(RoundedCornerShape(16.dp))
-                    // Если тема стеклянная — добавляем блюр всей области ПОД ячейками
-                    .then(
-                        if (currentTheme.isGlass) Modifier.blur(15.dp) else Modifier
-                    )
+                    // Блюрим только подложку самой доски
+                    .then(if (currentTheme.isGlass) Modifier.blur(15.dp) else Modifier)
                     .background(currentTheme.cellClosed.copy(0.1f))
             ) {
                 LazyVerticalGrid(
@@ -282,7 +282,7 @@ fun MineField(
 
         // Экраны конца игры и Диалоги
         if (showSettings) {
-            SettingsDialog(onDismiss = { showSettings = false }, theme = currentTheme)
+            SettingsDialog(onDismiss = { showSettings = false }, theme = currentTheme, settingsManager = settingsManager)
         }
 
         if (gameState != "playing") {

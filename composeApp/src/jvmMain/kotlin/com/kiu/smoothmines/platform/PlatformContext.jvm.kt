@@ -2,11 +2,12 @@ package com.kiu.smoothmines.platform
 
 import androidx.compose.runtime.Composable
 
-actual class PlatformContext actual constructor()
+actual class PlatformContext actual constructor(context: Any)
 
-actual fun getPlatformContext(): PlatformContext = PlatformContext()
+@Composable
+actual fun getPlatformContext(): PlatformContext = PlatformContext(Unit)
 
 @Composable
 actual fun androidContext(): Any {
-    TODO("Not yet implemented")
+    return Unit
 }

@@ -3,6 +3,7 @@ package com.kiu.smoothmines.logic
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.kiu.smoothmines.models.Cell
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
 
@@ -69,28 +70,36 @@ class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
     // Update placeMines function to prevent crashes
     fun placeMines(cells: SnapshotStateList<Cell>, safeCell: Cell) {
         val totalCells = rows * cols
-        if (minesCount >= totalCells - 1) {
-            // Don't allow more mines than cells - 1 (need at least one safe cell)
-            return
+        // Рекомендую ограничить количество мин, чтобы не уйти в бесконечную рекурсию
+        // Для зоны 3х3 нужно минимум 9 свободных клеток.
+        val maxMines = totalCells - 9
+        val currentMinesCount = if (minesCount > maxMines) maxMines else minesCount
+
+        // Очищаем поле перед расстановкой (на случай ретрая)
+        for (i in cells.indices) {
+            cells[i] = cells[i].copy(isMine = false, adjacentMines = 0)
         }
 
         var minesPlaced = 0
         val random = java.util.Random()
 
-        // 1. Place mines
-        while (minesPlaced < minesCount) {
+        // 1. Расстановка мин
+        while (minesPlaced < currentMinesCount) {
             val randomIndex = random.nextInt(totalCells)
             val targetCell = cells[randomIndex]
 
-            if (!targetCell.isMine &&
-                targetCell.x != safeCell.x &&
-                targetCell.y != safeCell.y) {
+            // ПРОВЕРКА ЗОНЫ 3х3:
+            // Если расстояние по X И по Y меньше или равно 1 — это зона 3х3 вокруг клика.
+            val isInsideSafeZone = abs(targetCell.x - safeCell.x) <= 1 &&
+                    abs(targetCell.y - safeCell.y) <= 1
+
+            if (!targetCell.isMine && !isInsideSafeZone) {
                 cells[randomIndex] = targetCell.copy(isMine = true)
                 minesPlaced++
             }
         }
 
-        // 2. Calculate adjacent mines
+        // 2. Расчет цифр (оптимизировано)
         for (i in cells.indices) {
             val cell = cells[i]
             if (cell.isMine) continue
@@ -99,13 +108,14 @@ class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
             for (dx in -1..1) {
                 for (dy in -1..1) {
                     if (dx == 0 && dy == 0) continue
-
                     val nx = cell.x + dx
                     val ny = cell.y + dy
 
+                    // Важно: nx проверяем по рядам, ny по колонкам (или наоборот, зависит от твоей логики)
                     if (nx in 0 until rows && ny in 0 until cols) {
-                        val neighbor = cells.find { it.x == nx && it.y == ny }
-                        if (neighbor?.isMine == true) {
+                        // Используй индекс вместо .find для скорости
+                        val neighborIndex = nx * cols + ny
+                        if (cells.getOrNull(neighborIndex)?.isMine == true) {
                             count++
                         }
                     }
@@ -114,10 +124,10 @@ class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
             cells[i] = cell.copy(adjacentMines = count)
         }
 
-        // 3. Ensure there's at least one reachable empty cell
+        // 3. Проверка на наличие "пустой" ячейки (0)
+        // С зоной 3х3 это условие почти всегда выполняется автоматически,
+        // но оставляем для надежности.
         if (cells.none { !it.isMine && it.adjacentMines == 0 }) {
-            // If no empty cells, retry mine placement
-            cells.replaceAll { it.copy(isMine = false, adjacentMines = 0) }
             placeMines(cells, safeCell)
         }
     }

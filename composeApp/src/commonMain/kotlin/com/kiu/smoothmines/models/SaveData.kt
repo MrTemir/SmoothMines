@@ -1,8 +1,11 @@
-package com.kiu.smoothmines.models
+
+import com.kiu.smoothmines.models.Cell
+import com.kiu.smoothmines.models.GameConfig
+
 
 data class SaveData(
-    val slotIndex: Int,
     val config: GameConfig,
     val cells: List<Cell>,
-    val date: String // Чтобы выводить "Сохранено: 14:20"
+    val timeSeconds: Int,
+    val date: String
 )

@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.kiu.smoothmines.platform.PlatformSettings
+import com.kiu.smoothmines.utils.SettingsManager
 
 // This object will be initialized in the App's initialization
 object GameSettings {
@@ -18,5 +19,6 @@ val globalSettings = GameSettings
 
 // Initialize settings manager
 fun initSettings(platformSettings: PlatformSettings): SettingsManager {
-    return SettingsManager(platformSettings.settings)
+    // Просто создаем объект, он сам подтянет настройки внутри actual-реализации
+    return SettingsManager()
 }

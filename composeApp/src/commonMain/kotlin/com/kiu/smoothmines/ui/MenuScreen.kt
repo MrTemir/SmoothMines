@@ -1,5 +1,6 @@
 package com.kiu.smoothmines.ui
 
+import SaveData
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
@@ -45,36 +45,27 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kiu.smoothmines.models.GameConfig
-import com.kiu.smoothmines.models.SaveData
-import com.kiu.smoothmines.models.SettingsManager
+import com.kiu.smoothmines.utils.SettingsManager
 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-
 fun SaveSlotCard(save: SaveData, theme: MinesTheme, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.size(width = 100.dp, height = 76.dp), // Чуть увеличил высоту для текста
-        color = theme.cellClosed,
-        shape = RoundedCornerShape(12.dp)
+        modifier = Modifier.fillMaxWidth(0.85f).height(100.dp).appleGlass(theme),
+        color = Color.Transparent
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally, // ИСПРАВЛЕНО: вместо gravity
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = save.config.difficultyName,
-                fontSize = 10.sp,
-                color = theme.textColor.copy(alpha = 0.7f)
-            )
-            Text(
-                text = save.date,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = theme.accent
-            )
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(70.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(0.05f)).padding(4.dp)) {
+                GameSnapshot(save.cells, save.config.cols)
+            }
+            Spacer(Modifier.width(16.dp))
+            Column {
+                Text(save.config.difficultyName, fontWeight = FontWeight.Bold, color = theme.accent)
+                Text("Время: ${String.format("%02d:%02d", save.timeSeconds / 60, save.timeSeconds % 60)}", fontSize = 12.sp, color = theme.textColor)
+                Text(save.date, fontSize = 10.sp, color = theme.textColor.copy(0.5f))
+            }
         }
     }
 }
@@ -118,6 +109,23 @@ fun SettingsDialog(onDismiss: () -> Unit, theme: MinesTheme, settingsManager: Se
                         )
                     )
                 }
+                Text(
+                    text = "Задержка долгого нажатия: ${settingsManager.longPressDelay} мс",
+                    color = theme.textColor,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+                Slider(
+                    value = settingsManager.longPressDelay.toFloat(),
+                    onValueChange = { settingsManager.updateLongPressDelay(it.toLong()) },
+                    valueRange = 200f..800f, // Диапазон от 200 до 800 мс
+                    steps = 6, // Шаги по 100 мс
+                    colors = SliderDefaults.colors(
+                        thumbColor = theme.accent,
+                        activeTrackColor = theme.accent,
+                        inactiveTrackColor = theme.accent.copy(alpha = 0.2f)
+                    )
+                )
 
                 // В SettingsDialog.kt
                 Spacer(Modifier.height(16.dp))
@@ -138,20 +146,6 @@ fun SettingsDialog(onDismiss: () -> Unit, theme: MinesTheme, settingsManager: Se
                         inactiveTrackColor = theme.accent.copy(alpha = 0.2f)
                     )
                 )
-                Text("Лимит FPS: ${if(settingsManager.fpsLimit == 0f) "Макс" else settingsManager.fpsLimit.toInt()}", color = theme.textColor)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(60f, 90f, 120f, 0f).forEach { limit ->
-                        Button(
-                            onClick = { settingsManager.updateFpsLimit(limit) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if(settingsManager.fpsLimit == limit) theme.accent else theme.cellClosed
-                            ),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(if(limit == 0f) "∞" else limit.toInt().toString(), fontSize = 10.sp)
-                        }
-                    }
-                }
             }
         },
         confirmButton = {
@@ -273,14 +267,11 @@ fun CustomGameDialog(
                 fontWeight = FontWeight.Black,
                 fontSize = 20.sp
             )
-
             Spacer(Modifier.height(24.dp))
-
             CustomSlider(
                 label = "Строки",
-                value = r,
-                current = r.toInt(),
-                min = 5f, max = 40f,
+                value = r, current = r.toInt(),
+                min = 5f, max = 100f,
                 theme = theme
             ) { r = it }
 
@@ -288,7 +279,7 @@ fun CustomGameDialog(
                 label = "Колонки",
                 value = c,
                 current = c.toInt(),
-                min = 5f, max = 30f,
+                min = 5f, max = 100f,
                 theme = theme
             ) { c = it }
 
@@ -352,19 +343,44 @@ fun CustomSlider(
 @Composable
 fun ThemeSwitcher(theme: MinesTheme, onPrev: () -> Unit, onNext: () -> Unit) {
     Row(
-        modifier = Modifier.padding(top = 32.dp).width(250.dp),
+        modifier = Modifier
+            .padding(top = 24.dp)
+            .width(260.dp), // Убрали background и лишние отступы
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         IconButton(onClick = onPrev) {
-            Icon(Icons.Default.KeyboardArrowLeft, null, tint = theme.textColor.copy(0.6f))
+            Icon(
+                imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowLeft,
+                contentDescription = null,
+                tint = theme.textColor.copy(0.6f)
+            )
         }
+
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("ТЕМАТИКА", fontSize = 9.sp, color = theme.textColor.copy(0.4f))
-            Text(theme.name.uppercase(), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = theme.textColor)
+            Text(
+                text = "ТЕМАТИКА",
+                fontSize = 10.sp,
+                letterSpacing = 1.2.sp,
+                fontWeight = FontWeight.Medium,
+                color = theme.textColor.copy(0.4f)
+            )
+            androidx.compose.animation.Crossfade(targetState = theme.name) { name ->
+                Text(
+                    text = name.uppercase(),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = theme.textColor
+                )
+            }
         }
+
         IconButton(onClick = onNext) {
-            Icon(Icons.Default.KeyboardArrowRight, null, tint = theme.textColor.copy(0.6f))
+            Icon(
+                imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowRight,
+                contentDescription = null,
+                tint = theme.textColor.copy(0.6f)
+            )
         }
     }
 }
@@ -386,13 +402,18 @@ fun CustomInputField(label: String, value: String, theme: MinesTheme, onValueCha
 fun MenuTextButton(text: String, currentTheme: MinesTheme, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .fillMaxWidth(0.6f)
-            .height(56.dp) // Фиксированная высота для стабильности
-            .clip(RoundedCornerShape(16.dp))
-            .background(currentTheme.cellClosed) // Пастельный фон ячейки
+            .fillMaxWidth(0.7f) // Сделаем чуть шире для длинных названий
+            .height(56.dp)
+            .appleGlass(currentTheme) // Используем эффект стекла вместо обычного цвета
             .clickable { onClick() },
-        contentAlignment = Alignment.Center // Центрируем текст строго посередине
+        contentAlignment = Alignment.Center
     ) {
-        Text(text.uppercase(), color = currentTheme.textColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text(
+            text = text.uppercase(),
+            color = currentTheme.textColor,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 1.sp
+        )
     }
 }

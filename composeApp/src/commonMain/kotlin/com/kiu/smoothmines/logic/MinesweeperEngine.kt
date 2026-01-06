@@ -1,107 +1,141 @@
 package com.kiu.smoothmines.logic
 
 import com.kiu.smoothmines.models.Cell
-import kotlinx.coroutines.delay
-import kotlin.math.abs
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.random.Random
 
 class MinesweeperEngine(val rows: Int, val cols: Int, val minesCount: Int) {
 
     fun generateBoard(): List<Cell> {
         return List(rows * cols) { index ->
-            Cell(x = index / cols, y = index % cols)
+            Cell(
+                id = index,
+                x = index % cols,
+                y = index / cols,
+                isMine = false,
+                isRevealed = false,
+                isFlagged = false,
+            )
         }
     }
 
-    suspend fun revealEmptyCells(
-        startCell: Cell,
-        cells: MutableList<Cell>,
-        onCellRevealed: (Cell) -> Unit
-    ) {
-        val queue = ArrayDeque<Pair<Cell, Int>>()
+    // РАССТАНОВКА МИН И РАСЧЕТ ЦИФР
+    suspend fun placeMines(cells: MutableList<Cell>, startCell: Cell, safeRadius: Int = 2) = withContext(Dispatchers.Default) {
+        val totalCells = rows * cols
+
+        // Проверка на безумные настройки (оставляем место для первого клика)
+        val effectiveMinesCount = minesCount.coerceAtMost(totalCells - (safeRadius * 2 + 1).let { it * it })
+
+        val safeIndices = mutableSetOf<Int>()
+        // Определяем "безопасную зону"
+        for (dx in -safeRadius..safeRadius) {
+            for (dy in -safeRadius..safeRadius) {
+                val nx = startCell.x + dx
+                val ny = startCell.y + dy
+                if (nx in 0 until cols && ny in 0 until rows) {
+                    safeIndices.add(ny * cols + nx)
+                }
+            }
+        }
+
+        var minesPlaced = 0
+        while (minesPlaced < effectiveMinesCount) {
+            val randomIndex = Random.nextInt(totalCells)
+            if (!safeIndices.contains(randomIndex) && !cells[randomIndex].isMine) {
+                cells[randomIndex] = cells[randomIndex].copy(isMine = true)
+                minesPlaced++
+            }
+        }
+
+        // РАССЧИТЫВАЕМ ЦИФРЫ
+        for (i in cells.indices) {
+            if (!cells[i].isMine) {
+                val count = countNeighborMines(i, cells)
+                cells[i] = cells[i].copy(adjacentMines = count)
+            }
+        }
+    }
+
+    // Оптимизированный подсчет соседей без создания лишних списков
+    private fun countNeighborMines(index: Int, cells: List<Cell>): Int {
+        var count = 0
+        val x = index % cols
+        val y = index / cols
+        for (dx in -1..1) {
+            for (dy in -1..1) {
+                if (dx == 0 && dy == 0) continue
+                val nx = x + dx
+                val ny = y + dy
+                if (nx in 0 until cols && ny in 0 until rows) {
+                    if (cells[ny * cols + nx].isMine) count++
+                }
+            }
+        }
+        return count
+    }
+
+    // ИТЕРАТИВНОЕ РАСКРЫТИЕ (BFS)
+    suspend fun revealEmptyCells(startCell: Cell, cells: MutableList<Cell>, onReveal: () -> Unit) = withContext(Dispatchers.Default) {
+        val queue = ArrayDeque<Int>()
+        queue.add(startCell.id)
         val visited = mutableSetOf<Int>()
 
-        // Используем параметры класса (rows, cols), а не жесткие числа!
-        fun getIndex(x: Int, y: Int) = x * cols + y
-
-        val startIndex = getIndex(startCell.x, startCell.y)
-        queue.add(startCell to 0)
-        visited.add(startIndex)
-
-        var currentWaveDist = 0
-
         while (queue.isNotEmpty()) {
-            val (current, dist) = queue.removeFirst()
+            val currentIndex = queue.removeFirst()
+            // visited.add возвращает false, если элемент уже там был
+            if (!visited.add(currentIndex)) continue
 
-            if (dist > currentWaveDist) {
-                delay(20L) // Плавная волна открытия
-                currentWaveDist = dist
-            }
+            val currentCell = cells[currentIndex]
+            // Используем твои новые свойства isSticky для лаконичности,
+            // но тут важна проверка на флаг и уже открытость
+            if (currentCell.isFlagged || currentCell.isRevealed) continue
 
-            val idx = getIndex(current.x, current.y)
-            if (idx in cells.indices && !cells[idx].isMine) {
-                val updated = cells[idx].copy(isRevealed = true)
-                cells[idx] = updated
-                onCellRevealed(updated)
+            // Раскрываем ячейку
+            cells[currentIndex] = currentCell.copy(isRevealed = true)
 
-                if (updated.adjacentMines == 0) {
-                    for (dx in -1..1) {
-                        for (dy in -1..1) {
-                            val nx = current.x + dx
-                            val ny = current.y + dy
-                            val nIdx = getIndex(nx, ny)
-
-                            if (nx in 0 until rows && ny in 0 until cols &&
-                                nIdx !in visited && !cells[nIdx].isRevealed) {
-                                visited.add(nIdx)
-                                queue.add(cells[nIdx] to dist + 1)
-                            }
-                        }
+            // Если нашли пустую ячейку, идем к соседям
+            if (cells[currentIndex].adjacentMines == 0 && !cells[currentIndex].isMine) {
+                getNeighborIndices(currentIndex).forEach { neighborIdx ->
+                    if (!cells[neighborIdx].isRevealed && !cells[neighborIdx].isFlagged) {
+                        queue.add(neighborIdx)
                     }
                 }
             }
         }
     }
 
-    fun placeMines(cells: MutableList<Cell>, startCell: Cell, safeRadius: Int = 2) {
-        cells.forEachIndexed { i, cell ->
-            cells[i] = cell.copy(isMine = false, adjacentMines = 0)
-        }
-
-        val availableIndices = cells.indices.filter { i ->
-            val c = cells[i]
-            abs(c.x - startCell.x) > safeRadius || abs(c.y - startCell.y) > safeRadius
-        }.shuffled()
-
-        val minesToPlace = minOf(minesCount, availableIndices.size)
-        for (i in 0 until minesToPlace) {
-            val mineIdx = availableIndices[i]
-            cells[mineIdx] = cells[mineIdx].copy(isMine = true)
-        }
-
-        recalculateNumbers(cells)
-    }
-
-    private fun recalculateNumbers(cells: MutableList<Cell>) {
-        cells.forEachIndexed { i, cell ->
-            if (!cell.isMine) {
-                cells[i] = cell.copy(adjacentMines = countAdjacentMines(cell, cells))
-            }
-        }
-    }
-
-    // Тот самый метод, которого не хватало
-    private fun countAdjacentMines(cell: Cell, cells: List<Cell>): Int {
-        var count = 0
+    private fun getNeighborIndices(index: Int): List<Int> {
+        val neighbors = mutableListOf<Int>()
+        val x = index % cols
+        val y = index / cols
         for (dx in -1..1) {
             for (dy in -1..1) {
                 if (dx == 0 && dy == 0) continue
-                val nx = cell.x + dx
-                val ny = cell.y + dy
-                if (nx in 0 until rows && ny in 0 until cols) {
-                    if (cells[nx * cols + ny].isMine) count++
+                val nx = x + dx
+                val ny = y + dy
+                if (nx in 0 until cols && ny in 0 until rows) {
+                    neighbors.add(ny * cols + nx)
                 }
             }
         }
-        return count
+        return neighbors
+    }
+    fun getAdjacentIndexes(index: Int): List<Int> {
+        val r = index / cols
+        val c = index % cols
+        val adjacent = mutableListOf<Int>()
+
+        for (dr in -1..1) {
+            for (dc in -1..1) {
+                if (dr == 0 && dc == 0) continue
+                val nr = r + dr
+                val nc = c + dc
+                if (nr in 0 until rows && nc in 0 until cols) {
+                    adjacent.add(nr * cols + nc)
+                }
+            }
+        }
+        return adjacent
     }
 }
